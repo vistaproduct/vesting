@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract TokenVesting is Ownable {
+    IERC20 public token;
+    uint256 public startTime;
+    uint256 public vestingDuration;
+
+    struct Beneficiary {
+        uint256 totalAmount;
+        uint256 claimedAmount;
+    }
+
+    mapping(address => Beneficiary) public beneficiaries;
+
+    event TokensClaimed(address indexed beneficiary, uint256 amount);
+
+    constructor(IERC20 _token, uint256 _vestingDuration) {
+        token = _token;
+        vestingDuration = _vestingDuration;
+        startTime = block.timestamp;
+    }
+
+    function addBeneficiary(address beneficiary, uint256 amount) external onlyOwner {
+        require(beneficiaries[beneficiary].totalAmount == 0, "Beneficiary already exists");
+        beneficiaries[beneficiary] = Beneficiary({
+            totalAmount: amount,
+            claimedAmount: 0
+        });
+    }
+
+    function claimTokens() external {
+        Beneficiary storage beneficiary = beneficiaries[msg.sender];
+        require(beneficiary.totalAmount > 0, "No tokens allocated");
+        uint256 vestedAmount = _calculateVestedAmount(beneficiary.totalAmount);
+        uint256 claimableAmount = vestedAmount - beneficiary.claimedAmount;
+        require(claimableAmount > 0, "No tokens available for claim");
+
+        beneficiary.claimedAmount += claimableAmount;
+        require(token.transfer(msg.sender, claimableAmount), "Token transfer failed");
+
+        emit TokensClaimed(msg.sender, claimableAmount);
+    }
+
+    function _calculateVestedAmount(uint256 totalAmount) internal view returns (uint256) {
+        uint256 timeElapsed = block.timestamp - startTime;
+        if (timeElapsed >= vestingDuration) {
+            return totalAmount;
+        } else {
+            return (totalAmount * timeElapsed) / vestingDuration;
+        }
+    }
+
+    function remainingTokens(address beneficiary) external view returns (uint256) {
+        return beneficiaries[beneficiary].totalAmount - beneficiaries[beneficiary].claimedAmount;
+    }
+}
